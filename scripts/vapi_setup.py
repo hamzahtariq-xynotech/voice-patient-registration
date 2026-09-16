@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 API_ROOT = "https://api.vapi.ai"
+USER_AGENT = "vapi-setup/1.0 (+voice-patient-registration)"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLS_FILE = REPO_ROOT / "prompts" / "vapi_tools.json"
 PROMPT_FILE = REPO_ROOT / "prompts" / "system_prompt.md"
@@ -80,7 +81,19 @@ class ApiError(RuntimeError):
     def __init__(self, status: int, body: str, method: str, path: str) -> None:
         self.status = status
         self.body = body
-        super().__init__(f"{method} {path} -> HTTP {status}\n{body}")
+        message = f"{method} {path} -> HTTP {status}\n{body}"
+        if status == 403 and "1010" in body:
+            message += (
+                "\n\nCloudflare rejected the client, not the key: error 1010 is a"
+                "\nUser-Agent ban, raised before the bearer token is checked."
+                "\nCheck that the request sets a User-Agent."
+            )
+        elif status in (401, 403):
+            message += (
+                "\n\nCheck that VAPI_API_KEY is the PRIVATE key from"
+                "\nDashboard -> API Keys. The public key is rejected here."
+            )
+        super().__init__(message)
 
 
 def request(method: str, path: str, api_key: str, payload: dict | None = None) -> Any:
@@ -89,6 +102,11 @@ def request(method: str, path: str, api_key: str, payload: dict | None = None) -
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Authorization", f"Bearer {api_key}")
     req.add_header("Content-Type", "application/json")
+    # Vapi sits behind Cloudflare, which blocks the default "Python-urllib/x.y"
+    # User-Agent outright (403, Cloudflare error 1010) before it ever checks the
+    # bearer token -- which reads exactly like a bad API key. Any ordinary
+    # User-Agent gets through.
+    req.add_header("User-Agent", USER_AGENT)
     try:
         with urllib.request.urlopen(req, timeout=30) as res:
             body = res.read().decode()
