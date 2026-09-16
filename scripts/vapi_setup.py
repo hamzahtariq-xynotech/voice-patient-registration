@@ -158,7 +158,7 @@ def extract_prompt_and_greeting() -> tuple[str, str]:
             raise RuntimeError(f"No fenced block under {heading!r} in {PROMPT_FILE.name}")
         return match.group(1).strip()
 
-    prompt = fenced_after("## Clean prompt (paste this into Vapi)")
+    prompt = fenced_after("## The prompt, verbatim")
     greeting = fenced_after("## First message")
     if "<!--" in prompt:
         raise RuntimeError("Refusing to upload a prompt containing HTML comments")
