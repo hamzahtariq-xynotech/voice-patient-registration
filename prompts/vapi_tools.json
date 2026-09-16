@@ -1,0 +1,103 @@
+{
+  "_comment": "Parameter schemas for the three custom function tools to create in the Vapi dashboard. Set each tool's server.url to https://<your-domain>/vapi/tools",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "check_existing_patient",
+        "description": "Check whether a patient record already exists for a phone number. Call this as soon as the caller gives their phone number. Returns 'FOUND: patient_id=..., first_name=..., last_name=..., date_of_birth=...' or 'NOT_FOUND'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "phone_number": {
+              "type": "string",
+              "description": "The caller's 10-digit US phone number, digits only, e.g. 5125550143"
+            }
+          },
+          "required": ["phone_number"]
+        }
+      },
+      "server": { "url": "https://<your-domain>/vapi/tools" },
+      "messages": [
+        { "type": "request-start", "content": "Let me check our records for a moment." }
+      ]
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_patient",
+        "description": "Save a new patient registration. Only call this after reading all collected information back to the caller and hearing an explicit yes. Returns 'SUCCESS: patient_id=...' or 'VALIDATION_ERROR: <field>: <what is wrong>'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "first_name": { "type": "string", "description": "Legal first name, letters only" },
+            "last_name": { "type": "string", "description": "Legal last name, letters only" },
+            "date_of_birth": { "type": "string", "description": "Date of birth as MM/DD/YYYY, e.g. 04/12/1985. Must be in the past." },
+            "sex": { "type": "string", "enum": ["Male", "Female", "Other", "Decline to Answer"], "description": "How the caller wants their sex recorded" },
+            "phone_number": { "type": "string", "description": "10-digit US phone number, digits only, e.g. 5125550143" },
+            "email": { "type": "string", "description": "Email address. Omit entirely if the caller declines." },
+            "address_line_1": { "type": "string", "description": "Street number and street name" },
+            "address_line_2": { "type": "string", "description": "Apartment, suite or unit number if any" },
+            "city": { "type": "string", "description": "City name" },
+            "state": { "type": "string", "description": "Two-letter US state abbreviation, e.g. TX" },
+            "zip_code": { "type": "string", "description": "5-digit ZIP code, e.g. 78701" },
+            "insurance_provider": { "type": "string", "description": "Insurance company name, if the caller provides one" },
+            "insurance_member_id": { "type": "string", "description": "Insurance member or policy ID, if provided" },
+            "preferred_language": { "type": "string", "description": "Preferred spoken language. Defaults to English." },
+            "emergency_contact_name": { "type": "string", "description": "Full name of an emergency contact, if provided" },
+            "emergency_contact_phone": { "type": "string", "description": "10-digit phone number for the emergency contact, digits only" }
+          },
+          "required": [
+            "first_name",
+            "last_name",
+            "date_of_birth",
+            "sex",
+            "phone_number",
+            "address_line_1",
+            "city",
+            "state",
+            "zip_code"
+          ]
+        }
+      },
+      "server": { "url": "https://<your-domain>/vapi/tools" },
+      "messages": [
+        { "type": "request-start", "content": "One moment while I save that." }
+      ]
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "update_patient",
+        "description": "Update fields on an existing patient record. Use the patient_id returned by check_existing_patient. Send only the fields the caller wants changed. Returns 'SUCCESS', 'NOT_FOUND' or 'VALIDATION_ERROR: ...'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "patient_id": { "type": "string", "description": "The patient_id returned by check_existing_patient" },
+            "first_name": { "type": "string" },
+            "last_name": { "type": "string" },
+            "date_of_birth": { "type": "string", "description": "MM/DD/YYYY" },
+            "sex": { "type": "string", "enum": ["Male", "Female", "Other", "Decline to Answer"] },
+            "phone_number": { "type": "string", "description": "10 digits" },
+            "email": { "type": "string" },
+            "address_line_1": { "type": "string" },
+            "address_line_2": { "type": "string" },
+            "city": { "type": "string" },
+            "state": { "type": "string", "description": "Two-letter abbreviation" },
+            "zip_code": { "type": "string" },
+            "insurance_provider": { "type": "string" },
+            "insurance_member_id": { "type": "string" },
+            "preferred_language": { "type": "string" },
+            "emergency_contact_name": { "type": "string" },
+            "emergency_contact_phone": { "type": "string" }
+          },
+          "required": ["patient_id"]
+        }
+      },
+      "server": { "url": "https://<your-domain>/vapi/tools" },
+      "messages": [
+        { "type": "request-start", "content": "Updating that now." }
+      ]
+    }
+  ]
+}

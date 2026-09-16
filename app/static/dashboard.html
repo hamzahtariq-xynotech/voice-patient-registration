@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patient Registrations</title>
+<style>
+  :root {
+    --accent: #2563eb;
+    --bg: #f6f7f9;
+    --card: #fff;
+    --line: #e3e6ea;
+    --text: #16191d;
+    --muted: #6b7280;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    background: var(--card); border-bottom: 1px solid var(--line);
+    padding: 16px 20px; display: flex; flex-wrap: wrap; gap: 12px;
+    align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 5;
+  }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .count { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  input[type=search] {
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+    font-size: 14px; min-width: 220px; background: #fff; color: inherit;
+  }
+  button {
+    padding: 8px 12px; border-radius: 6px; border: 1px solid var(--line);
+    background: #fff; color: var(--text); font-size: 14px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+  button:hover { filter: brightness(0.97); }
+  main { padding: 20px; }
+  .tablewrap { background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 760px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: #f0f5ff; }
+  tbody tr:last-child td { border-bottom: none; }
+  .state { padding: 40px 20px; text-align: center; color: var(--muted); }
+  .state.error { color: #b91c1c; }
+  .overlay {
+    position: fixed; inset: 0; background: rgba(15, 20, 30, .35);
+    display: flex; justify-content: flex-end;
+  }
+  .panel {
+    background: var(--card); width: min(430px, 100%); height: 100%;
+    overflow-y: auto; padding: 20px; border-left: 1px solid var(--line);
+  }
+  .panel h2 { margin: 0 0 4px; font-size: 18px; }
+  .panel .sub { color: var(--muted); margin-bottom: 18px; font-size: 13px; }
+  .row { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .row dt { color: var(--muted); width: 150px; flex: none; margin: 0; font-size: 13px; }
+  .row dd { margin: 0; word-break: break-word; }
+  .panel-actions { display: flex; gap: 8px; margin-top: 20px; }
+  .transcript {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px; white-space: pre-wrap; font-size: 13px; max-height: 240px; overflow-y: auto;
+  }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 22px 0 8px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 560px) { .row dt { width: 110px; } main { padding: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Patient Registrations <span class="count" id="count"></span></h1>
+  <div class="controls">
+    <input type="search" id="search" placeholder="Search last name or phone" autocomplete="off">
+    <button class="primary" id="searchBtn">Search</button>
+    <button id="clearBtn">Clear</button>
+    <button id="refreshBtn">Refresh</button>
+  </div>
+</header>
+
+<main>
+  <div id="loading" class="state">Loading patients…</div>
+  <div id="error" class="state error" hidden></div>
+  <div id="empty" class="state" hidden>No patient records yet. Call the intake line to create one.</div>
+  <div class="tablewrap" id="tablewrap" hidden>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th><th>DOB</th><th>Sex</th><th>Phone</th>
+          <th>City / State</th><th>Insurance</th><th>Created</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</main>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="panel" id="panel"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let patients = [];
+let selected = null;
+
+const FIELDS = [
+  ["first_name", "First name"], ["last_name", "Last name"], ["date_of_birth", "Date of birth"],
+  ["sex", "Sex"], ["phone_number", "Phone"], ["email", "Email"],
+  ["address_line_1", "Address line 1"], ["address_line_2", "Address line 2"],
+  ["city", "City"], ["state", "State"], ["zip_code", "ZIP code"],
+  ["insurance_provider", "Insurance"], ["insurance_member_id", "Member ID"],
+  ["preferred_language", "Language"], ["emergency_contact_name", "Emergency contact"],
+  ["emergency_contact_phone", "Emergency phone"], ["patient_id", "Patient ID"],
+  ["created_at", "Created"], ["updated_at", "Updated"],
+];
+
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const fmtPhone = (p) => /^\d{10}$/.test(p || "") ? `(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}` : (p || "—");
+const fmtDate = (iso) => { const d = new Date(iso); return isNaN(d) ? "—" : d.toLocaleString(); };
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  const body = await res.json().catch(() => ({ error: { message: "Bad response from server" } }));
+  if (!res.ok) throw new Error(body?.error?.message || `Request failed (${res.status})`);
+  return body.data;
+}
+
+function buildQuery() {
+  const term = $("search").value.trim();
+  if (!term) return "/patients";
+  // Digits mean a phone number; anything else is treated as a last name.
+  const digits = term.replace(/\D/g, "");
+  const key = digits.length >= 10 ? "phone_number" : "last_name";
+  return `/patients?${key}=${encodeURIComponent(key === "phone_number" ? digits : term)}`;
+}
+
+async function load() {
+  $("error").hidden = true;
+  if (!patients.length) $("loading").hidden = false;
+  try {
+    patients = await api(buildQuery());
+    render();
+  } catch (err) {
+    $("loading").hidden = true;
+    $("tablewrap").hidden = true;
+    $("empty").hidden = true;
+    $("error").hidden = false;
+    $("error").textContent = err.message;
+  }
+}
+
+function render() {
+  $("loading").hidden = true;
+  $("count").textContent = `· ${patients.length} record${patients.length === 1 ? "" : "s"}`;
+  $("empty").hidden = patients.length > 0;
+  $("tablewrap").hidden = patients.length === 0;
+  $("tbody").innerHTML = patients.map((p, i) => `
+    <tr data-index="${i}">
+      <td>${esc(p.first_name)} ${esc(p.last_name)}</td>
+      <td>${esc(p.date_of_birth)}</td>
+      <td>${esc(p.sex)}</td>
+      <td>${esc(fmtPhone(p.phone_number))}</td>
+      <td>${esc(p.city)}, ${esc(p.state)}</td>
+      <td>${esc(p.insurance_provider || "—")}</td>
+      <td>${esc(fmtDate(p.created_at))}</td>
+    </tr>`).join("");
+}
+
+async function openPanel(patient) {
+  selected = patient;
+  const rows = FIELDS.map(([key, label]) => {
+    let value = patient[key];
+    if (key === "phone_number" || key === "emergency_contact_phone") value = value ? fmtPhone(value) : null;
+    if (key === "created_at" || key === "updated_at") value = fmtDate(value);
+    return `<div class="row"><dt>${label}</dt><dd>${esc(value || "—")}</dd></div>`;
+  }).join("");
+
+  $("panel").innerHTML = `
+    <h2>${esc(patient.first_name)} ${esc(patient.last_name)}</h2>
+    <div class="sub">Registered ${esc(fmtDate(patient.created_at))}</div>
+    <dl style="margin:0">${rows}</dl>
+    <div id="calls"></div>
+    <div class="panel-actions">
+      <button id="closeBtn">Close</button>
+      <button class="danger" id="deleteBtn">Delete record</button>
+    </div>`;
+  $("overlay").hidden = false;
+  $("closeBtn").onclick = closePanel;
+  $("deleteBtn").onclick = remove;
+
+  // Call transcripts are a bonus feature; absence is not an error.
+  try {
+    const logs = await api(`/patients/${patient.patient_id}/calls`);
+    if (logs && logs.length) {
+      $("calls").innerHTML = `<h3>Call transcript</h3>` + logs.map((log) => `
+        ${log.summary ? `<p>${esc(log.summary)}</p>` : ""}
+        <div class="transcript">${esc(log.transcript || "No transcript captured.")}</div>`).join("");
+    }
+  } catch (_) { /* leave the section empty */ }
+}
+
+function closePanel() { $("overlay").hidden = true; selected = null; }
+
+async function remove() {
+  if (!selected) return;
+  if (!confirm(`Delete the record for ${selected.first_name} ${selected.last_name}?`)) return;
+  try {
+    await api(`/patients/${selected.patient_id}`, { method: "DELETE" });
+    closePanel();
+    await load();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+$("tbody").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr");
+  if (tr) openPanel(patients[Number(tr.dataset.index)]);
+});
+$("searchBtn").onclick = load;
+$("refreshBtn").onclick = load;
+$("clearBtn").onclick = () => { $("search").value = ""; load(); };
+$("search").addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+$("overlay").addEventListener("click", (e) => { if (e.target === $("overlay")) closePanel(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
+
+load();
+// Auto-refresh so a reviewer can watch a record land while they are on the call.
+setInterval(() => { if ($("overlay").hidden) load(); }, 15000);
+</script>
+</body>
+</html>
