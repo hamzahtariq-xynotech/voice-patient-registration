@@ -46,7 +46,11 @@
   th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
   tbody tr { cursor: pointer; }
   tbody tr:hover { background: #f0f5ff; }
+  tbody tr:hover .chev { color: var(--accent); }
   tbody tr:last-child td { border-bottom: none; }
+  td.chev { color: #b6bcc4; text-align: right; font-size: 17px; width: 1px; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 10px 2px; }
+  .panel dd.empty { color: #9aa1aa; }
   .state { padding: 40px 20px; text-align: center; color: var(--muted); }
   .state.error { color: #b91c1c; }
   .overlay {
@@ -107,12 +111,14 @@
   <div id="loading" class="state">Loading patients…</div>
   <div id="error" class="state error" hidden></div>
   <div id="empty" class="state" hidden>No patient records yet. Call the intake line to create one.</div>
+  <p class="hint" id="hint" hidden>Click any row to see the full record, including insurance, emergency contact and call transcript.</p>
   <div class="tablewrap" id="tablewrap" hidden>
     <table>
       <thead>
         <tr>
-          <th>Name</th><th>DOB</th><th>Sex</th><th>Phone</th>
-          <th>City / State</th><th>Insurance</th><th>Created</th>
+          <th>Name</th><th>DOB</th><th>Sex</th><th>Phone</th><th>Email</th>
+          <th>Address</th><th>City / State</th><th>ZIP</th>
+          <th>Insurance</th><th>Language</th><th>Created</th><th></th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -129,15 +135,29 @@ const $ = (id) => document.getElementById(id);
 let patients = [];
 let selected = null;
 
-const FIELDS = [
-  ["first_name", "First name"], ["last_name", "Last name"], ["date_of_birth", "Date of birth"],
-  ["sex", "Sex"], ["phone_number", "Phone"], ["email", "Email"],
-  ["address_line_1", "Address line 1"], ["address_line_2", "Address line 2"],
-  ["city", "City"], ["state", "State"], ["zip_code", "ZIP code"],
-  ["insurance_provider", "Insurance"], ["insurance_member_id", "Member ID"],
-  ["preferred_language", "Language"], ["emergency_contact_name", "Emergency contact"],
-  ["emergency_contact_phone", "Emergency phone"], ["patient_id", "Patient ID"],
-  ["created_at", "Created"], ["updated_at", "Updated"],
+// Every field the API returns, grouped so 19 rows stay scannable.
+const FIELD_GROUPS = [
+  ["Patient", [
+    ["first_name", "First name"], ["last_name", "Last name"],
+    ["date_of_birth", "Date of birth"], ["sex", "Sex"],
+    ["preferred_language", "Preferred language"],
+  ]],
+  ["Contact", [
+    ["phone_number", "Phone"], ["email", "Email"],
+  ]],
+  ["Address", [
+    ["address_line_1", "Address line 1"], ["address_line_2", "Address line 2"],
+    ["city", "City"], ["state", "State"], ["zip_code", "ZIP code"],
+  ]],
+  ["Insurance", [
+    ["insurance_provider", "Provider"], ["insurance_member_id", "Member ID"],
+  ]],
+  ["Emergency contact", [
+    ["emergency_contact_name", "Name"], ["emergency_contact_phone", "Phone"],
+  ]],
+  ["Record", [
+    ["patient_id", "Patient ID"], ["created_at", "Created"], ["updated_at", "Updated"],
+  ]],
 ];
 
 const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) =>
@@ -182,25 +202,44 @@ function render() {
   $("count").textContent = `· ${patients.length} record${patients.length === 1 ? "" : "s"}`;
   $("empty").hidden = patients.length > 0;
   $("tablewrap").hidden = patients.length === 0;
+  $("hint").hidden = patients.length === 0;
+  // The table is a summary; every field lives in the detail panel, which the
+  // trailing chevron advertises.
+  const dash = "—";
+  const street = (p) =>
+    [p.address_line_1, p.address_line_2].filter(Boolean).join(", ") || dash;
+
   $("tbody").innerHTML = patients.map((p, i) => `
     <tr data-index="${i}">
       <td>${esc(p.first_name)} ${esc(p.last_name)}</td>
       <td>${esc(p.date_of_birth)}</td>
       <td>${esc(p.sex)}</td>
       <td>${esc(fmtPhone(p.phone_number))}</td>
+      <td>${esc(p.email || dash)}</td>
+      <td>${esc(street(p))}</td>
       <td>${esc(p.city)}, ${esc(p.state)}</td>
-      <td>${esc(p.insurance_provider || "—")}</td>
+      <td>${esc(p.zip_code)}</td>
+      <td>${esc(p.insurance_provider || dash)}</td>
+      <td>${esc(p.preferred_language || dash)}</td>
       <td>${esc(fmtDate(p.created_at))}</td>
+      <td class="chev" aria-hidden="true">›</td>
     </tr>`).join("");
 }
 
 async function openPanel(patient) {
   selected = patient;
-  const rows = FIELDS.map(([key, label]) => {
-    let value = patient[key];
-    if (key === "phone_number" || key === "emergency_contact_phone") value = value ? fmtPhone(value) : null;
-    if (key === "created_at" || key === "updated_at") value = fmtDate(value);
-    return `<div class="row"><dt>${label}</dt><dd>${esc(value || "—")}</dd></div>`;
+  const rows = FIELD_GROUPS.map(([group, fields]) => {
+    const body = fields.map(([key, label]) => {
+      let value = patient[key];
+      if (key === "phone_number" || key === "emergency_contact_phone") {
+        value = value ? fmtPhone(value) : null;
+      }
+      if (key === "created_at" || key === "updated_at") value = fmtDate(value);
+      const empty = value === null || value === undefined || value === "";
+      return `<div class="row"><dt>${label}</dt>
+        <dd${empty ? ' class="empty"' : ""}>${esc(empty ? "Not provided" : value)}</dd></div>`;
+    }).join("");
+    return `<h3>${group}</h3>${body}`;
   }).join("");
 
   $("panel").innerHTML = `
