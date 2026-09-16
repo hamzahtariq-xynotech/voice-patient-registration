@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Patient Registrations</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#127973;</text></svg>">
 <style>
   :root {
     --accent: #2563eb;
@@ -303,7 +304,12 @@ if (cfg && !cfg.web_call_enabled) {
 } else if (cfg) try {
   // Dynamic import so a blocked or offline CDN is catchable; a static import
   // would kill the whole module before any handler could report why.
-  const { default: Vapi } = await import(SDK_URL);
+  const mod = await import(SDK_URL);
+  // jsDelivr's +esm build wraps the package's CommonJS entry, so the class sits
+  // at .default.default rather than .default. Try each shape so a future build
+  // that exports the class directly keeps working.
+  const Vapi = [mod.default?.default, mod.default, mod.Vapi].find((c) => typeof c === "function");
+  if (!Vapi) throw new Error("no constructor found in the Vapi SDK module");
   vapi = new Vapi(cfg.vapi_public_key);
   btn.hidden = false;
 
