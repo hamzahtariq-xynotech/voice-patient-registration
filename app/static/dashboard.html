@@ -262,7 +262,7 @@ window.addEventListener("vapi-call-ended", () => setTimeout(load, 1500));
 // Browser call widget: talks to the same assistant as the phone number, over
 // WebRTC, so the whole flow can be tested without dialing. The button stays
 // hidden unless the server supplies a public key and assistant id.
-import Vapi from "https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.7.0/+esm";
+const SDK_URL = "https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.7.0/+esm";
 
 const $ = (id) => document.getElementById(id);
 const btn = $("callBtn"), bar = $("callBar"), status = $("callStatus"), line = $("callLine");
@@ -279,11 +279,31 @@ function endedUi() {
   bar.hidden = true;
 }
 
+function disableButton(reason) {
+  // Surface the reason rather than hiding silently -- a missing button with no
+  // explanation is indistinguishable from a stale cached page.
+  btn.hidden = false;
+  btn.disabled = true;
+  btn.classList.remove("call");
+  btn.textContent = "Calling unavailable";
+  btn.title = reason;
+  console.warn("Web calling unavailable:", reason);
+}
+
+let cfg = null;
 try {
   const res = await fetch("/config");
-  const cfg = (await res.json()).data;
-  if (!cfg?.web_call_enabled) throw new Error("not configured");
+  cfg = (await res.json()).data;
+} catch (err) {
+  disableButton(`Could not load /config: ${err?.message || err}`);
+}
 
+if (cfg && !cfg.web_call_enabled) {
+  disableButton("Set VAPI_PUBLIC_KEY and VAPI_ASSISTANT_ID in .env, then restart the server.");
+} else if (cfg) try {
+  // Dynamic import so a blocked or offline CDN is catchable; a static import
+  // would kill the whole module before any handler could report why.
+  const { default: Vapi } = await import(SDK_URL);
   vapi = new Vapi(cfg.vapi_public_key);
   btn.hidden = false;
 
@@ -334,8 +354,7 @@ try {
     }
   };
 } catch (err) {
-  // No key configured, or the SDK failed to load -- the dashboard works regardless.
-  console.info("Web calling disabled:", err?.message || err);
+  disableButton(`Vapi SDK failed to initialise: ${err?.message || err}`);
 }
 </script>
 </body>

@@ -11,4 +11,9 @@ _DASHBOARD = Path(__file__).resolve().parent.parent / "static" / "dashboard.html
 
 @router.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
 def dashboard() -> HTMLResponse:
-    return HTMLResponse(_DASHBOARD.read_text(encoding="utf-8"))
+    # no-store: the page is read from disk on every request, so a stale copy in
+    # the browser silently hides edits that the server is already serving.
+    return HTMLResponse(
+        _DASHBOARD.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, must-revalidate"},
+    )
