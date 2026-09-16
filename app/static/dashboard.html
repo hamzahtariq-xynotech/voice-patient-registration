@@ -67,6 +67,19 @@
     padding: 10px; white-space: pre-wrap; font-size: 13px; max-height: 240px; overflow-y: auto;
   }
   h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 22px 0 8px; }
+  button.call { background: #047857; border-color: #047857; color: #fff; }
+  button.call.active { background: #dc2626; border-color: #dc2626; }
+  #callBar {
+    display: flex; align-items: center; gap: 10px;
+    background: #062d22; color: #d1fae5; padding: 10px 20px; font-size: 13px;
+  }
+  #callBar .dot {
+    width: 9px; height: 9px; border-radius: 50%; background: #34d399; flex: none;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  #callBar #callLine { color: #a7f3d0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { #callBar .dot { animation: none; } }
   [hidden] { display: none !important; }
   @media (max-width: 560px) { .row dt { width: 110px; } main { padding: 12px; } }
 </style>
@@ -75,12 +88,19 @@
 <header>
   <h1>Patient Registrations <span class="count" id="count"></span></h1>
   <div class="controls">
+    <button class="call" id="callBtn" hidden>Call intake line</button>
     <input type="search" id="search" placeholder="Search last name or phone" autocomplete="off">
     <button class="primary" id="searchBtn">Search</button>
     <button id="clearBtn">Clear</button>
     <button id="refreshBtn">Refresh</button>
   </div>
 </header>
+
+<div id="callBar" hidden>
+  <span class="dot"></span>
+  <strong id="callStatus">Connecting…</strong>
+  <span id="callLine"></span>
+</div>
 
 <main>
   <div id="loading" class="state">Loading patients…</div>
@@ -234,6 +254,89 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel
 load();
 // Auto-refresh so a reviewer can watch a record land while they are on the call.
 setInterval(() => { if ($("overlay").hidden) load(); }, 15000);
+// The call widget (module script below) fires this when a browser call ends.
+window.addEventListener("vapi-call-ended", () => setTimeout(load, 1500));
+</script>
+
+<script type="module">
+// Browser call widget: talks to the same assistant as the phone number, over
+// WebRTC, so the whole flow can be tested without dialing. The button stays
+// hidden unless the server supplies a public key and assistant id.
+import Vapi from "https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.7.0/+esm";
+
+const $ = (id) => document.getElementById(id);
+const btn = $("callBtn"), bar = $("callBar"), status = $("callStatus"), line = $("callLine");
+
+let vapi = null, live = false;
+
+const setStatus = (text, detail = "") => { status.textContent = text; line.textContent = detail; };
+
+function endedUi() {
+  live = false;
+  btn.textContent = "Call intake line";
+  btn.classList.remove("active");
+  btn.disabled = false;
+  bar.hidden = true;
+}
+
+try {
+  const res = await fetch("/config");
+  const cfg = (await res.json()).data;
+  if (!cfg?.web_call_enabled) throw new Error("not configured");
+
+  vapi = new Vapi(cfg.vapi_public_key);
+  btn.hidden = false;
+
+  vapi.on("call-start", () => {
+    live = true;
+    btn.textContent = "End call";
+    btn.classList.add("active");
+    btn.disabled = false;
+    bar.hidden = false;
+    setStatus("Connected", "Say hello to start the intake.");
+  });
+
+  vapi.on("call-end", () => {
+    endedUi();
+    // The record is written mid-call, so refresh once the line drops.
+    window.dispatchEvent(new Event("vapi-call-ended"));
+  });
+
+  vapi.on("speech-start", () => live && setStatus("Assistant speaking"));
+  vapi.on("speech-end", () => live && setStatus("Listening"));
+
+  vapi.on("message", (msg) => {
+    // Show the running transcript so you can see what the STT actually heard.
+    if (msg?.type === "transcript" && msg.transcriptType === "final") {
+      const who = msg.role === "assistant" ? "Assistant" : "You";
+      line.textContent = `${who}: ${msg.transcript}`;
+    }
+  });
+
+  vapi.on("error", (err) => {
+    console.error("Vapi error", err);
+    setStatus("Call error", err?.errorMsg || err?.message || "See the browser console.");
+    btn.disabled = false;
+    setTimeout(endedUi, 4000);
+  });
+
+  btn.onclick = async () => {
+    if (live) { vapi.stop(); return; }
+    btn.disabled = true;
+    bar.hidden = false;
+    setStatus("Connecting…", "Allow microphone access if prompted.");
+    try {
+      await vapi.start(cfg.vapi_assistant_id);
+    } catch (err) {
+      console.error(err);
+      setStatus("Could not start the call", err?.message || "");
+      setTimeout(endedUi, 4000);
+    }
+  };
+} catch (err) {
+  // No key configured, or the SDK failed to load -- the dashboard works regardless.
+  console.info("Web calling disabled:", err?.message || err);
+}
 </script>
 </body>
 </html>

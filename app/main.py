@@ -84,6 +84,24 @@ def health():
     return ok({"status": "ok"})
 
 
+@app.get("/config", tags=["meta"])
+def client_config():
+    """Public browser config for the dashboard's call widget.
+
+    Only the Vapi *public* key is exposed here -- it is designed to be shipped to
+    browsers. The private key never leaves the server environment.
+    """
+    from app.responses import ok
+
+    return ok(
+        {
+            "vapi_public_key": settings.vapi_public_key,
+            "vapi_assistant_id": settings.vapi_assistant_id,
+            "web_call_enabled": bool(settings.vapi_public_key and settings.vapi_assistant_id),
+        }
+    )
+
+
 @app.get("/", include_in_schema=False)
 def root():
     from fastapi.responses import RedirectResponse

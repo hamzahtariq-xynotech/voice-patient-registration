@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     app_name: str = "Voice Patient Registration API"
 
+    # Browser-call widget on the dashboard. The PUBLIC key is meant to be shipped
+    # to the browser; the private key (VAPI_API_KEY) must never be. Leaving these
+    # empty simply hides the call button.
+    vapi_public_key: str = ""
+    vapi_assistant_id: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
