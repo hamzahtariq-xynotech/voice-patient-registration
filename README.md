@@ -153,8 +153,35 @@ restart, so the Vapi tool URLs must be updated when it does.
 
 ## 7. Vapi configuration
 
-All of this is done in the Vapi dashboard; there is no Vapi-specific code to deploy beyond
-the two endpoints this repo already serves.
+### Fast path: the setup script
+
+`create_patient` has 16 parameters, and typing those into the dashboard form is slow and
+error-prone. [`scripts/vapi_setup.py`](scripts/vapi_setup.py) pushes
+[`prompts/vapi_tools.json`](prompts/vapi_tools.json) and the system prompt straight to the
+Vapi API instead:
+
+```bash
+export VAPI_API_KEY=...        # private key, Dashboard → API Keys
+uv run python scripts/vapi_setup.py --server-url https://<your-domain> --dry-run
+uv run python scripts/vapi_setup.py --server-url https://<your-domain>
+```
+
+It is idempotent — tools are matched by function name, the assistant by name — so
+re-running updates in place rather than creating duplicates. That makes the usual
+follow-up a single command: when your public URL changes (ngrok → Railway), re-run with
+the new `--server-url` and all three tools plus the events URL are repointed.
+
+Flags: `--dry-run` previews payloads without sending, `--skip-assistant` syncs tools only,
+`--secret` mirrors `VAPI_WEBHOOK_SECRET` onto the tools as an `x-vapi-secret` header, and
+`--voice` picks the voice. If the assistant call fails the tools are still created, and
+the script says so and points you at the manual steps below.
+
+Only the phone number is left to do by hand (step 8).
+
+### Manual path
+
+Everything the script does can be done in the dashboard; there is no Vapi-specific code to
+deploy beyond the two endpoints this repo already serves.
 
 1. **Create an assistant** named "Patient Intake".
 2. **Model:** GPT-4o-mini (or Claude Sonnet), temperature ≈ 0.4. Low enough to follow the
@@ -372,6 +399,8 @@ app/
 prompts/
   system_prompt.md             the assistant prompt, annotated
   vapi_tools.json              tool parameter schemas for the Vapi dashboard
+scripts/
+  vapi_setup.py                idempotent sync of tools + assistant to the Vapi API
 tests/
   test_patients_api.py         API contract tests
   test_vapi_tools.py           voice tool handler tests
