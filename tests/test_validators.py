@@ -154,6 +154,35 @@ def test_dob_unreadable_tells_model_what_to_ask():
     assert "month, day and year" in str(exc.value)
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "five one two five five five zero one three four",
+        "five one two triple five zero one three four",
+        "five one two double five five zero one three four",
+        "five one two five fifty five oh one thirty four",
+        "512 triple five 0134",
+    ],
+)
+def test_phone_accepts_grouped_speech(raw):
+    """Callers group digits aloud, and the transcriber passes the grouping through.
+
+    An agent that had to count these itself insisted a correct ten-digit number
+    was nine, three times in a row, so the counting lives here where it is exact.
+    """
+    assert normalize_phone(raw) == "5125550134"
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [("five fifty five", "555"), ("zero one thirty four", "0134"),
+     ("twenty one", "21"), ("fifty", "50"), ("nineteen ninety", "1990")],
+)
+def test_tens_absorb_a_following_unit(raw, expected):
+    # "fifty five" is 55, not 50 followed by 5.
+    assert extract_digits(raw) == expected
+
+
 def test_extract_digits_ignores_known_filler():
     assert extract_digits("my number is five five five") == "555"
     assert extract_digits("") == ""

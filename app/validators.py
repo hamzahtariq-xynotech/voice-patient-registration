@@ -59,6 +59,19 @@ _DIGIT_WORDS = {
     "six": "6", "seven": "7", "eight": "8", "nine": "9",
 }
 
+# Callers group digits when reading a number aloud: "five one two, five fifty
+# five, oh one thirty four". Teens are one token; tens absorb a following unit
+# ("fifty five" is 55, not 50 then 5), so they are handled separately.
+_TEEN_WORDS = {
+    "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13",
+    "fourteen": "14", "fifteen": "15", "sixteen": "16", "seventeen": "17",
+    "eighteen": "18", "nineteen": "19",
+}
+_TENS_WORDS = {
+    "twenty": "2", "thirty": "3", "forty": "4", "fourty": "4", "fifty": "5",
+    "sixty": "6", "seventy": "7", "eighty": "8", "ninety": "9",
+}
+
 # Words a caller may wrap around a number without changing it. Anything outside
 # this set makes the value ambiguous, and ambiguous means reject -- see
 # extract_digits.
@@ -89,22 +102,40 @@ def extract_digits(value) -> str | None:
 
     For ZIP and phone fields only -- never run this over a name.
     """
-    text = str(value or "").lower()
+    tokens = re.findall(r"[a-z]+|\d", str(value or "").lower())
     out: list[str] = []
     repeat = 1
-    for token in re.findall(r"[a-z]+|\d", text):
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
         if token.isdigit():
             out.extend([token] * repeat)
             repeat = 1
         elif token in ("double", "triple"):
             repeat = 2 if token == "double" else 3
+            i += 1
+            continue
         elif token in _DIGIT_WORDS:
             out.extend([_DIGIT_WORDS[token]] * repeat)
+            repeat = 1
+        elif token in _TEEN_WORDS:
+            out.append(_TEEN_WORDS[token])
+            repeat = 1
+        elif token in _TENS_WORDS:
+            # "fifty five" is 55; a bare "fifty" is 50.
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else None
+            if nxt in _DIGIT_WORDS and _DIGIT_WORDS[nxt] != "0":
+                out.append(_TENS_WORDS[token] + _DIGIT_WORDS[nxt])
+                i += 2
+                repeat = 1
+                continue
+            out.append(_TENS_WORDS[token] + "0")
             repeat = 1
         elif token in _FILLER_WORDS:
             repeat = 1
         else:
             return None  # a word we cannot interpret: refuse to guess
+        i += 1
     return "".join(out)
 
 
