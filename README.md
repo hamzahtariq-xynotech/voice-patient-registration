@@ -10,16 +10,25 @@ A REST API and a small web dashboard expose the records.
 
 | What | Where |
 |---|---|
-| Phone number | `+1 (XXX) XXX-XXXX` — _fill in after assigning a number in Vapi_ |
-| API base URL | `https://<your-app>.up.railway.app` — _fill in after deploy_ |
-| Dashboard | `https://<your-app>.up.railway.app/dashboard` |
-| Interactive API docs | `https://<your-app>.up.railway.app/docs` |
-| Health check | `https://<your-app>.up.railway.app/health` |
+| **Phone number** | **+1 (346) 998-6592** — call this to register as a new patient |
+| API base URL | <https://web-production-1a58c.up.railway.app> |
+| Dashboard | <https://web-production-1a58c.up.railway.app/dashboard> |
+| Interactive API docs | <https://web-production-1a58c.up.railway.app/docs> |
+| Health check | <https://web-production-1a58c.up.railway.app/health> |
 
-> **Status:** the application, dashboard, tests and prompt are complete and verified
-> locally. The three placeholders above are filled in once the Railway deploy and the
-> Vapi assistant are provisioned — see [§6](#6-deployment-railway) and [§7](#7-vapi-configuration),
-> which give the exact steps.
+No credentials are needed: neither the API nor the dashboard requires authentication, so
+you can start immediately. That is a deliberate trade-off for reviewability rather than an
+oversight — see [§11](#11-known-limitations--trade-offs).
+
+**Please use fictional details only.** Records are stored unencrypted and the system is not
+HIPAA compliant.
+
+The dashboard refreshes every 15 seconds, so leaving it open during a call shows the record
+appear as the call ends. Click any row for the full record and the call transcript. The
+number is inbound only and cannot call you back.
+
+Two seeded demo patients (Jane Doe, Marcus Rivera) ship with the app so the dashboard is
+never empty, alongside a few records with obvious test names left from verification.
 
 ---
 
@@ -80,15 +89,15 @@ that string and says the appropriate thing back to the caller.
 | Database | **SQLite** on a persistent volume | Zero setup, survives restarts and redeploys; a single-writer store is a correct fit for one phone line |
 | Dashboard | Single static HTML + vanilla JS served by FastAPI at `/dashboard` | No build step, no toolchain, nothing to break between the API and the page |
 | Hosting | **Railway** (fallback: ngrok tunnel to localhost) | Deploys from GitHub in minutes and gives the public HTTPS URL Vapi needs for webhooks |
-| Tests | pytest + FastAPI `TestClient` | 21 tests over the API contract and the voice tool handler, running against an in-memory database |
+| Tests | pytest + FastAPI `TestClient` | 88 tests over the API contract, the validators and the voice tool handler, running against an in-memory database |
 
 ---
 
 ## 4. Setup
 
 ```bash
-git clone <repo-url>
-cd carecloud
+git clone https://github.com/hamzahtariq-xynotech/voice-patient-registration.git
+cd voice-patient-registration
 
 cp .env.example .env          # defaults work as-is for local development
 
@@ -106,7 +115,7 @@ Marcus Rivera) so the dashboard is not empty. Seeding only runs when the table i
 Run the tests:
 
 ```bash
-uv run pytest -q     # 21 passed
+uv run pytest -q     # 88 passed
 ```
 
 ---
@@ -119,6 +128,8 @@ uv run pytest -q     # 21 passed
 | `VAPI_WEBHOOK_SECRET` | _(empty)_ | If set, `/vapi/tools` and `/vapi/events` require a matching `x-vapi-secret` header and return 401 otherwise. Empty disables the check. |
 | `LOG_LEVEL` | `INFO` | Root log level. |
 | `VAPI_API_KEY` | _(empty)_ | Private Vapi API key. Used only by `scripts/vapi_setup.py`; the running app never reads it. |
+| `VAPI_PUBLIC_KEY` | _(empty)_ | **Public** Vapi key, served to the browser by `GET /config` so the dashboard can place a WebRTC call to the same assistant. Safe to expose; the private key never leaves the server. |
+| `VAPI_ASSISTANT_ID` | _(empty)_ | Assistant the dashboard's call button dials. With both of these unset the button simply does not render. |
 
 No secrets are committed; `.env` is gitignored and `.env.example` documents every variable.
 
@@ -265,7 +276,8 @@ Errors carry `{"code", "message", "details": [{"field", "message"}]}`.
 | `POST` | `/vapi/events` | Vapi end-of-call report (always 200) | 200 / 401 |
 
 ```bash
-BASE=http://127.0.0.1:8000
+# The live deployment -- or http://127.0.0.1:8000 if you are running it locally.
+BASE=https://web-production-1a58c.up.railway.app
 
 # Health
 curl -s $BASE/health
@@ -339,6 +351,29 @@ accepted as `MM/DD/YYYY` or ISO but always returned as `MM/DD/YYYY`.
   for that call is lost; the agent tells the caller staff will follow up.
 - **Addresses are not verified.** Format is validated; existence is not. No geocoding or
   USPS lookup, so a well-formed but fictional address is accepted.
+- **ZIP length is not enforced**, deliberately. Requiring exactly five digits was the main
+  cause of the agent looping: the caller says a ZIP, the transcriber drops a digit, the tool
+  rejects it, and asking again produces the same transcription. Whatever number is given is
+  stored, so a misheard ZIP lands in the record rather than stalling the call. A wrong value
+  sits visibly in the record where staff can correct it; a call that never completes loses
+  the whole registration. A value containing no digits at all is still refused, since that
+  means the wrong field was sent.
+- **The model is not trusted to count.** An earlier prompt asked it to check for ten digits
+  and it insisted a correct number was nine, three times in a row, then talked the caller
+  into adding an eleventh. Length checks now live in the API only. The general lesson —
+  never delegate arithmetic to the LLM when a deterministic check is available — applies to
+  anything added later.
+- **English only.** The transcriber is Deepgram `flux-general-en`, which is locked to
+  English, and the voice is an English one. A caller speaking another language is not
+  rejected -- Deepgram returns English words that approximate the sounds, so the agent
+  proceeds confidently on nonsense, which is worse than a clean failure. The prompt has a
+  rule for switching to Spanish, but it cannot work while the transcriber is English-only,
+  so the system should be treated as English-only today. Real support means a multilingual
+  transcriber (e.g. Deepgram `nova-2` with language detection), a multilingual voice, and a
+  prompt rule that generalises past Spanish -- all three, or none of them help.
+- **Railway volumes are tied to the service.** Records survive redeploys and restarts, which
+  is verified, but deleting and recreating the service would lose the database. There is no
+  backup or export beyond the API itself.
 - **Transcript linking is best-effort.** The end-of-call report is matched to a patient by
   the caller's phone number. A caller who registers a number different from the one they
   are calling from will have an unlinked transcript.
@@ -361,6 +396,9 @@ accepted as `MM/DD/YYYY` or ISO but always returned as `MM/DD/YYYY`.
    to every log line).
 6. **Idempotency keys** on `create_patient` so a retried tool call cannot double-write.
 7. **Post-call review queue** — flag low-STT-confidence fields for a human to verify.
+8. **A `needs_review` column** so a field the caller could not get through cleanly is
+   saved and flagged rather than either blocking the call or being stored as if it were
+   confirmed. This is the principled version of the ZIP trade-off in §11.
 
 ---
 
@@ -373,11 +411,12 @@ accepted as `MM/DD/YYYY` or ISO but always returned as `MM/DD/YYYY`.
 - [x] **Soft delete** rather than destructive delete.
 - [x] **Structured JSON logging** of every tool call, result, and patient create/update.
 - [x] **Optional webhook authentication** via `x-vapi-secret`.
-- [x] **Multilingual support** — the agent switches to Spanish on request and records
-      `preferred_language`.
 - [x] **Auto-refreshing dashboard** so a record can be watched landing during a live call.
-- [x] **21 automated tests** covering the API contract and the voice tool handler,
-      including malformed payloads and both argument encodings.
+- [x] **Browser calling from the dashboard** — a Call button runs the same assistant over
+      WebRTC with a live transcript, so the whole flow is testable without a phone.
+- [x] **88 automated tests** covering the API contract, the validators and the voice tool
+      handler, including malformed payloads, both argument encodings, and every
+      speech-to-text phrasing that caused a failure during testing.
 
 ---
 
@@ -407,5 +446,6 @@ scripts/
   vapi_setup.py                idempotent sync of tools + assistant to the Vapi API
 tests/
   test_patients_api.py         API contract tests
+  test_validators.py           validation of real speech-to-text output
   test_vapi_tools.py           voice tool handler tests
 ```
