@@ -118,6 +118,7 @@ uv run pytest -q     # 21 passed
 | `DATABASE_URL` | `sqlite:///./data/patients.db` | SQLAlchemy URL. On Railway, point this at the mounted volume, e.g. `sqlite:////app/data/patients.db`. Any SQLAlchemy-supported URL works, including Postgres. |
 | `VAPI_WEBHOOK_SECRET` | _(empty)_ | If set, `/vapi/tools` and `/vapi/events` require a matching `x-vapi-secret` header and return 401 otherwise. Empty disables the check. |
 | `LOG_LEVEL` | `INFO` | Root log level. |
+| `VAPI_API_KEY` | _(empty)_ | Private Vapi API key. Used only by `scripts/vapi_setup.py`; the running app never reads it. |
 
 No secrets are committed; `.env` is gitignored and `.env.example` documents every variable.
 
@@ -161,10 +162,13 @@ error-prone. [`scripts/vapi_setup.py`](scripts/vapi_setup.py) pushes
 Vapi API instead:
 
 ```bash
-export VAPI_API_KEY=...        # private key, Dashboard → API Keys
+# .env:  VAPI_API_KEY=<private key from Dashboard → API Keys>
 uv run python scripts/vapi_setup.py --server-url https://<your-domain> --dry-run
 uv run python scripts/vapi_setup.py --server-url https://<your-domain>
 ```
+
+The key is read from `.env` (which is gitignored), so it never reaches a commit.
+`--api-key` overrides it.
 
 It is idempotent — tools are matched by function name, the assistant by name — so
 re-running updates in place rather than creating duplicates. That makes the usual

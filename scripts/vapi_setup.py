@@ -9,9 +9,13 @@ re-running updates in place instead of creating duplicates. That makes the commo
 follow-up a one-liner -- when your public URL changes (ngrok -> Railway), re-run
 with the new --server-url and every tool is repointed.
 
+The API key is read from .env (VAPI_API_KEY), the environment, or --api-key,
+in that order of convenience -- .env is gitignored, so the key never lands in a
+commit.
+
 Usage
 -----
-  export VAPI_API_KEY=...            # private key, from Dashboard -> API Keys
+  # .env:  VAPI_API_KEY=your-private-key
   uv run python scripts/vapi_setup.py --server-url https://your-app.up.railway.app
 
   # preview without sending anything
@@ -40,6 +44,29 @@ API_ROOT = "https://api.vapi.ai"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLS_FILE = REPO_ROOT / "prompts" / "vapi_tools.json"
 PROMPT_FILE = REPO_ROOT / "prompts" / "system_prompt.md"
+ENV_FILE = REPO_ROOT / ".env"
+
+
+def load_env() -> bool:
+    """Load .env from the repo root, whatever directory the script is run from.
+
+    Falls back to a minimal parser so the script still works under a bare
+    `python` outside the uv environment.
+    """
+    if not ENV_FILE.exists():
+        return False
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(ENV_FILE)
+    except ImportError:
+        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+    return True
 
 ASSISTANT_NAME = "Patient Intake"
 TOOL_NAMES = ("check_existing_patient", "create_patient", "update_patient")
@@ -199,14 +226,24 @@ def sync_assistant(api_key: str, payload: dict, dry_run: bool) -> str | None:
 
 # --------------------------------------------------------------------------- #
 
+def mask(secret: str) -> str:
+    """Show just enough of a key to confirm the right one loaded."""
+    # ASCII only -- the Windows console mangles non-ASCII in this context.
+    return f"{secret[:4]}...{secret[-4:]}" if len(secret) > 12 else "set"
+
+
 def main() -> int:
+    # Must run before argparse, which reads these as defaults.
+    env_loaded = load_env()
+
     parser = argparse.ArgumentParser(description="Sync Vapi tools/assistant from this repo.")
     parser.add_argument(
         "--server-url",
         required=True,
         help="Public base URL of the deployed API, e.g. https://app.up.railway.app",
     )
-    parser.add_argument("--api-key", default=os.environ.get("VAPI_API_KEY", ""))
+    parser.add_argument("--api-key", default=os.environ.get("VAPI_API_KEY", ""),
+                        help="Defaults to VAPI_API_KEY from .env or the environment")
     parser.add_argument("--secret", default=os.environ.get("VAPI_WEBHOOK_SECRET", ""),
                         help="Mirror of VAPI_WEBHOOK_SECRET; sent as the x-vapi-secret header")
     parser.add_argument("--voice", default="Elliot", help="Vapi voice id (--voice '' to omit)")
@@ -219,13 +256,20 @@ def main() -> int:
         print("! Vapi requires a public HTTPS URL for webhooks.", file=sys.stderr)
         return 2
     if not args.api_key and not args.dry_run:
-        print("! Set VAPI_API_KEY or pass --api-key (private key, not the public one).",
-              file=sys.stderr)
+        where = f"{ENV_FILE.name} has no VAPI_API_KEY" if env_loaded else "no .env found"
+        print(
+            f"! No API key ({where}).\n"
+            "  Add VAPI_API_KEY=... to .env, or pass --api-key.\n"
+            "  Use the PRIVATE key from Dashboard -> API Keys; the public key gives 403.",
+            file=sys.stderr,
+        )
         return 2
 
     print(f"\nTarget: {base_url}")
     print(f"  tools  -> {base_url}/vapi/tools")
     print(f"  events -> {base_url}/vapi/events")
+    print(f"  api key: {mask(args.api_key) if args.api_key else 'none (dry run)'}"
+          f"{' from .env' if env_loaded and args.api_key else ''}")
     print(f"  secret header: {'yes' if args.secret else 'no'}\n")
 
     try:
